@@ -9,12 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectIdRouteImport } from './routes/project.$id'
 import { Route as CategorySlugRouteImport } from './routes/category.$slug'
 
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -45,6 +51,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/login': typeof LoginRoute
+  '/settings': typeof SettingsRoute
   '/category/$slug': typeof CategorySlugRoute
   '/project/$id': typeof ProjectIdRoute
 }
@@ -52,6 +59,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/login': typeof LoginRoute
+  '/settings': typeof SettingsRoute
   '/category/$slug': typeof CategorySlugRoute
   '/project/$id': typeof ProjectIdRoute
 }
@@ -60,19 +68,33 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/login': typeof LoginRoute
+  '/settings': typeof SettingsRoute
   '/category/$slug': typeof CategorySlugRoute
   '/project/$id': typeof ProjectIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/admin' | '/login' | '/category/$slug' | '/project/$id'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/login'
+    | '/settings'
+    | '/category/$slug'
+    | '/project/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/admin' | '/login' | '/category/$slug' | '/project/$id'
+  to:
+    | '/'
+    | '/admin'
+    | '/login'
+    | '/settings'
+    | '/category/$slug'
+    | '/project/$id'
   id:
     | '__root__'
     | '/'
     | '/admin'
     | '/login'
+    | '/settings'
     | '/category/$slug'
     | '/project/$id'
   fileRoutesById: FileRoutesById
@@ -81,12 +103,20 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   LoginRoute: typeof LoginRoute
+  SettingsRoute: typeof SettingsRoute
   CategorySlugRoute: typeof CategorySlugRoute
   ProjectIdRoute: typeof ProjectIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -129,6 +159,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   LoginRoute: LoginRoute,
+  SettingsRoute: SettingsRoute,
   CategorySlugRoute: CategorySlugRoute,
   ProjectIdRoute: ProjectIdRoute,
 }
