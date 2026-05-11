@@ -60,6 +60,11 @@ export interface Project {
   state: string | null;
   outcomes_publications: string | null;
   current_status_note: string | null;
+  co_pi?: string | null;
+  department?: string | null;
+  broad_subject_area?: string | null;
+  remarks?: string | null;
+  total_amount_released?: number | null;
 }
 
 export interface YearlyStatus {
