@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/login")({
@@ -23,7 +24,14 @@ function LoginPage() {
       toast.error(error);
     } else {
       toast.success("Signed in");
-      navigate({ to: "/" });
+      // Wait for the session to be persisted before navigating so the
+      // AppLayout auth gate doesn't bounce us back to /login.
+      await supabase.auth.getSession();
+      if (typeof window !== "undefined") {
+        window.location.assign("/");
+      } else {
+        navigate({ to: "/" });
+      }
     }
   };
 
