@@ -79,9 +79,19 @@ export function parseFlexDate(v: any): string | null {
 export function parseNumber(v: any): number | null {
   if (v == null || v === "") return null;
   if (typeof v === "number") return v;
-  const s = String(v).replace(/[₹,\s]/g, "");
+  const s = String(v).replace(/[₹,\s]/g, "").replace(/\/[-–—]?/g, "");
   const n = Number(s);
   return isNaN(n) ? null : n;
+}
+
+// Handles "5613959+ 28,45,643" or "3,60,500/- & 2,00,000/-"
+export function parseMultiNumber(v: any): number | null {
+  if (v == null || v === "") return null;
+  if (typeof v === "number") return v;
+  const s = String(v);
+  const parts = s.split(/[+&]/).map((p) => parseNumber(p)).filter((n): n is number => n != null && !isNaN(n));
+  if (!parts.length) return null;
+  return parts.reduce((a, b) => a + b, 0);
 }
 
 export function parseBool(v: any): boolean {

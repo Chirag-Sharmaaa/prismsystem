@@ -26,6 +26,7 @@ import {
   parseNumber,
   parseBool,
   parseDurationYears,
+  parseMultiNumber,
 } from "@/lib/format";
 import { logHistory } from "@/lib/history";
 
@@ -377,8 +378,9 @@ function ImportModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [tab, setTab] = useState<"template" | "upload">("template");
+  const [tab, setTab] = useState<"template" | "upload">("upload");
   const [rows, setRows] = useState<any[]>([]);
+  const [sheetCount, setSheetCount] = useState(0);
   const [existingEFiles, setExistingEFiles] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
   const { user } = useAuth();
@@ -394,14 +396,13 @@ function ImportModal({
 
   const downloadTemplate = () => {
     const headers = [
-      "title",
-      "e_file_number",
-      "pi_name",
-      "institute",
-      "start_date",
-      "duration_years",
-      "total_sanctioned_amount",
-      "description",
+      "S.No.","File No.","E-Office No.","IRIS-ID","PI Name","Title","Institute","Department",
+      "PI Mail","PI Contact No.","Date of start","Date of end","Duration",
+      "Total Amount of Grant (in lac INR)","TotalAmount Released",
+      "1st Year Grant","1st year grant released",
+      "2nd Year Grant","2nd year grant released",
+      "3rd Year Grant","3rd year grant released",
+      "Co-PI","Broad Subject Area","Remarks","Current Status","Outcomes/ Publications","State","City",
     ];
     const csv = headers.join(",") + "\n";
     const blob = new Blob([csv], { type: "text/csv" });
@@ -413,37 +414,50 @@ function ImportModal({
   };
 
   const onFile = async (file: File) => {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array", cellDates: false });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const json: any[] = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
-    const mapped = json.map((row) => mapRow(row, category)).filter(Boolean) as any[];
-    setRows(mapped);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", cellDates: false });
+      const allJson: any[] = [];
+      for (const sheetName of wb.SheetNames) {
+        const sheet = wb.Sheets[sheetName];
+        const json: any[] = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+        allJson.push(...json);
+      }
+      const mapped = allJson.map((row) => mapRow(row, category)).filter(Boolean) as any[];
+      setSheetCount(wb.SheetNames.length);
+      setRows(mapped);
+      if (mapped.length === 0) toast.error("No valid project rows detected in file.");
+    } catch (e: any) {
+      toast.error("Failed to read file: " + (e?.message || "unknown error"));
+    }
   };
 
   const seenInFile = new Set<string>();
   const validatedRows = rows.map((r) => {
     const issues: string[] = [];
-    if (!r.title) issues.push("Missing title");
-    if (!r.pi_name) issues.push("Missing PI");
+    const warnings: string[] = [];
+    if (!r.title && !r.pi_name) issues.push("Missing title and PI");
+    else if (!r.title) issues.push("Missing title");
+    else if (!r.pi_name) issues.push("Missing PI");
+    if (!r.start_date) warnings.push("Date unparseable");
     const dup = seenInFile.has(r.e_file_number);
     if (dup) issues.push("Duplicate in file");
     else seenInFile.add(r.e_file_number);
     const inDb = existingEFiles.has(r.e_file_number);
-    if (inDb) issues.push("Already exists in DB");
-    return { ...r, _issues: issues, _skip: issues.includes("Already exists in DB") || dup };
+    if (inDb) issues.push("Already exists");
+    const invalid = issues.length > 0;
+    return { ...r, _issues: issues, _warnings: warnings, _invalid: invalid, _skip: invalid };
   });
+
+  const validCount = validatedRows.filter((r) => !r._skip).length;
 
   const doImport = async () => {
     setImporting(true);
     let imported = 0;
     let skipped = 0;
     for (const r of validatedRows) {
-      if (r._skip || !r.title || !r.pi_name) {
-        skipped++;
-        continue;
-      }
-      const { _issues, _skip, _yearly, _fyBudgets, ...projData } = r;
+      if (r._skip) { skipped++; continue; }
+      const { _issues, _warnings, _invalid, _skip, _yearly, _fyBudgets, ...projData } = r;
       const { data: inserted, error } = await supabase
         .from("projects")
         .insert({ ...projData, created_by: user?.id || null })
@@ -468,14 +482,14 @@ function ImportModal({
       imported++;
     }
     setImporting(false);
-    toast.success(`${imported} projects imported. ${skipped} skipped.`);
+    toast.success(`${imported} imported. ${skipped} skipped.`);
     onDone();
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-card rounded-xl max-w-4xl w-full max-h-[85vh] overflow-y-auto"
+        className="bg-card rounded-xl max-w-5xl w-full max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b">
@@ -484,23 +498,23 @@ function ImportModal({
         </div>
         <div className="flex border-b">
           <button
-            onClick={() => setTab("template")}
-            className={`px-4 py-2 text-sm ${tab === "template" ? "border-b-2 border-primary font-semibold" : ""}`}
-          >
-            Download Template
-          </button>
-          <button
             onClick={() => setTab("upload")}
             className={`px-4 py-2 text-sm ${tab === "upload" ? "border-b-2 border-primary font-semibold" : ""}`}
           >
             Upload File
+          </button>
+          <button
+            onClick={() => setTab("template")}
+            className={`px-4 py-2 text-sm ${tab === "template" ? "border-b-2 border-primary font-semibold" : ""}`}
+          >
+            Download Template
           </button>
         </div>
         <div className="p-4">
           {tab === "template" && (
             <div>
               <p className="text-sm mb-3">
-                Download the CSV template, fill it in, and upload it. Extra columns will be ignored.
+                Download the CSV template, fill it in, and upload it. Extra columns are ignored.
               </p>
               <button
                 onClick={downloadTemplate}
@@ -521,36 +535,48 @@ function ImportModal({
               />
               {rows.length > 0 && (
                 <div className="mt-4">
-                  <div className="text-sm mb-2">{rows.length} projects found in file</div>
-                  <div className="border rounded overflow-x-auto max-h-80">
+                  <div className="text-sm mb-3 font-medium">
+                    {rows.length} projects found across {sheetCount} sheet{sheetCount !== 1 ? "s" : ""} ·{" "}
+                    <span className="text-green-700 dark:text-green-400">{validCount} valid</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mb-2">Preview (first 5 rows)</div>
+                  <div className="border rounded overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-muted">
                         <tr>
-                          <th className="p-1.5 text-left">e-File</th>
-                          <th className="p-1.5 text-left">Title</th>
-                          <th className="p-1.5 text-left">PI</th>
-                          <th className="p-1.5 text-left">Institute</th>
-                          <th className="p-1.5 text-left">Issues</th>
+                          <th className="p-1.5 text-left">S.No / File No.</th>
+                          <th className="p-1.5 text-left">PI Name</th>
+                          <th className="p-1.5 text-left">Project Title</th>
+                          <th className="p-1.5 text-left">Start Date</th>
+                          <th className="p-1.5 text-left">Duration</th>
+                          <th className="p-1.5 text-left">Status</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {validatedRows.slice(0, 50).map((r, i) => (
+                        {validatedRows.slice(0, 5).map((r, i) => (
                           <tr
                             key={i}
                             className={`border-t ${
-                              r._skip
+                              r._invalid
                                 ? "bg-red-50 dark:bg-red-950/30"
-                                : r._issues.length
+                                : r._warnings.length
                                 ? "bg-yellow-50 dark:bg-yellow-950/30"
                                 : ""
                             }`}
                           >
-                            <td className="p-1.5">{r.e_file_number}</td>
-                            <td className="p-1.5">{r.title || "—"}</td>
+                            <td className="p-1.5">{r.serial_number || r.file_number || r.e_file_number || "—"}</td>
                             <td className="p-1.5">{r.pi_name || "—"}</td>
-                            <td className="p-1.5">{r.institute || "—"}</td>
-                            <td className="p-1.5 text-red-700 dark:text-red-400">
-                              {r._issues.join(", ") || "OK"}
+                            <td className="p-1.5 max-w-xs truncate">{r.title || "—"}</td>
+                            <td className="p-1.5">{r.start_date || "—"}</td>
+                            <td className="p-1.5">{r.duration_years ? `${r.duration_years} yr` : "—"}</td>
+                            <td className="p-1.5">
+                              {r._invalid ? (
+                                <span className="text-red-700 dark:text-red-400">{r._issues.join(", ")}</span>
+                              ) : r._warnings.length ? (
+                                <span className="text-yellow-700 dark:text-yellow-400">{r._warnings.join(", ")}</span>
+                              ) : (
+                                <span className="text-green-700 dark:text-green-400">OK</span>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -559,11 +585,11 @@ function ImportModal({
                   </div>
                   <button
                     onClick={doImport}
-                    disabled={importing}
-                    className="mt-4 px-4 py-2 rounded text-white disabled:opacity-50"
-                    style={{ background: "var(--brand)" }}
+                    disabled={importing || validCount === 0}
+                    className="mt-4 px-5 py-2.5 rounded text-white font-medium disabled:opacity-50"
+                    style={{ background: "#2E75B6" }}
                   >
-                    {importing ? "Importing…" : "Confirm Import"}
+                    {importing ? "Importing…" : `Confirm Import (${validCount})`}
                   </button>
                 </div>
               )}
@@ -575,89 +601,149 @@ function ImportModal({
   );
 }
 
-// Map ADHOC-style spreadsheet row to project + yearly + fy budgets
-function mapRow(row: any, category: Category): any | null {
-  // case-insensitive lookup
-  const lc: Record<string, any> = {};
-  Object.keys(row).forEach((k) => {
-    lc[k.toLowerCase().trim()] = row[k];
-  });
-  const get = (...keys: string[]) => {
-    for (const k of keys) {
-      const v = lc[k.toLowerCase().trim()];
-      if (v != null && v !== "") return v;
-    }
-    return null;
-  };
+// ---------- column helpers ----------
+function normKey(k: string) {
+  return k.toLowerCase().replace(/[\s._\-/]+/g, "");
+}
 
-  const title = String(get("project title", "title") || "").trim();
-  const pi = String(get("pi name", "pi_name") || "").trim();
+function makeGetter(row: any) {
+  const map: Record<string, any> = {};
+  Object.keys(row).forEach((k) => {
+    map[normKey(k)] = row[k];
+  });
+  return {
+    get: (...keys: string[]) => {
+      for (const k of keys) {
+        const v = map[normKey(k)];
+        if (v != null && v !== "") return v;
+      }
+      return null;
+    },
+    findKey: (regex: RegExp): string | null => {
+      // search original keys
+      for (const orig of Object.keys(row)) {
+        if (regex.test(orig)) {
+          const v = row[orig];
+          if (v != null && v !== "") return orig;
+        }
+      }
+      return null;
+    },
+    raw: row,
+  };
+}
+
+function getYearAmount(row: any, year: number, kind: "sanctioned" | "released"): any {
+  // year 1..5; match patterns like "1st Year Grant" / "1st year (Sanctioned)" / "1st year grant released" / "1st year (Released)"
+  const ords = ["1st", "2nd", "3rd", "4th", "5th"];
+  const ord = ords[year - 1];
+  const yearRx = new RegExp(`(^|[^0-9])${year}\\s*(st|nd|rd|th)?`, "i");
+  for (const orig of Object.keys(row)) {
+    const k = orig.toLowerCase();
+    if (!yearRx.test(k) && !k.includes(ord)) continue;
+    if (!k.includes("year") && !k.includes("yr")) continue;
+    if (kind === "sanctioned") {
+      if (k.includes("released") || k.includes("release")) continue;
+      if (k.includes("sanction") || k.includes("grant") || k.includes("(sanctioned)")) {
+        const v = row[orig];
+        if (v != null && v !== "") return v;
+      }
+    } else {
+      if (k.includes("released") || k.includes("release") || k.includes("(released)")) {
+        const v = row[orig];
+        if (v != null && v !== "") return v;
+      }
+    }
+  }
+  return null;
+}
+
+function isLacHeader(row: any, ...keys: string[]): boolean {
+  for (const orig of Object.keys(row)) {
+    const k = orig.toLowerCase();
+    for (const want of keys) {
+      if (normKey(orig) === normKey(want) && (k.includes("lac") || k.includes("lakh"))) return true;
+    }
+  }
+  return false;
+}
+
+// Map any-style spreadsheet row to project + yearly + fy budgets
+function mapRow(row: any, category: Category): any | null {
+  const { get } = makeGetter(row);
+
+  const title = String(get("Project Title", "Title") || "").trim();
+  const pi = String(get("PI Name", "PI/Guide Name", "pi_name") || "").trim();
   if (!title && !pi) return null;
 
-  const serial = parseNumber(get("s.no", "s no", "serial_number"));
-  const fileNo = get("file no.", "file no", "file_number");
-  const eoffice = get("e-office no.", "e-office no", "eoffice_number");
+  const serial = parseNumber(get("S.No.", "S.No", "S No", "serial_number"));
+  const fileNo = get("File No.", "File.no.", "File No", "file_number");
+  const eoffice = get("E-Office No.", "e-Office No.", "E-Office No", "eoffice_number");
   const efile =
-    get("e_file_number") ||
-    eoffice ||
-    fileNo ||
-    `${category}-${serial ?? Math.floor(Math.random() * 10000)}`;
+    String(eoffice || fileNo || `${category}-${serial ?? Math.floor(Math.random() * 100000)}`);
 
-  const startDate = parseFlexDate(get("date of start", "start_date"));
-  const completionDate = parseFlexDate(get("date of completion", "date_of_completion"));
-  const duration = parseDurationYears(get("duration", "duration_years")) || 3;
-  const total = parseNumber(get("total budget", "total_sanctioned_amount"));
-  const instituteAddr = get("institute address", "institute_address");
-  const institute = get("institute") || instituteAddr;
+  const startDate = parseFlexDate(get("Date of start", "Date of Start", "start_date"));
+  const completionDate = parseFlexDate(get("Date of end", "Date of completion", "date_of_completion"));
+  const durationRaw = get("Duration", "duration_years");
+  const duration = parseDurationYears(durationRaw) || 3;
 
-  const proj = {
+  // total: support lac multiplier
+  const totalRaw = get("Total budget", "Total Amount of Grant (in lac INR)", "TotalAmount", "total_sanctioned_amount");
+  let total = parseMultiNumber(totalRaw);
+  if (total != null && isLacHeader(row, "Total Amount of Grant (in lac INR)")) total = total * 100000;
+
+  const totalReleasedRaw = get("TotalAmount Released", "Total Amount Released", "total_amount_released");
+  const totalReleased = parseMultiNumber(totalReleasedRaw);
+
+  const instituteAddr = get("Institute Address", "institute_address");
+  const institute = get("Institute", "Institute/Department") || instituteAddr;
+  const city = get("City");
+
+  const proj: any = {
     title,
     pi_name: pi,
     category,
-    e_file_number: String(efile),
+    e_file_number: efile,
     serial_number: serial,
     file_number: fileNo ? String(fileNo) : null,
     eoffice_number: eoffice ? String(eoffice) : null,
-    iris_id: get("iris id/epms id", "iris_id"),
-    contact_number: get("contact no.", "contact_number"),
-    email_id: get("e-mail id", "email", "email_id"),
+    iris_id: get("IRIS-ID", "IRIS ID/EPMS ID", "Iris-ID", "IRIS_ID", "iris_id"),
+    contact_number: get("PI Contact no.", "Contact No.", "PI Contact No", "contact_number"),
+    email_id: get("PI mail", "e-mail ID", "PI Mail", "email_id"),
     start_date: startDate,
     date_of_completion: completionDate,
     duration_years: duration,
-    institute_address: instituteAddr,
+    institute_address: instituteAddr || (city ? String(city) : null),
     institute,
-    state: get("state"),
+    state: get("State"),
     total_sanctioned_amount: total,
-    current_status_note: get("current status", "current_status_note"),
-    outcomes_publications: get("outcomes/ publications", "outcomes/publications", "outcomes_publications"),
+    current_status_note: get("Current status", "Current Status", "current_status_note"),
+    outcomes_publications: get("Outcomes/ Publications", "Outcomes/Publications", "outcomes_publications"),
     description: get("description"),
     project_state: "Active" as const,
+    co_pi: get("Co-PI", "co_pi"),
+    department: get("Department", "department"),
+    broad_subject_area: get("Broad Subject Area", "broad_subject_area"),
+    remarks: get("Remarks", "remarks"),
+    total_amount_released: totalReleased,
   };
 
   // yearly rows
   const yearlyRows: any[] = [];
-  const yrLabels: [string, string, number][] = [
-    ["1st year grant", "1st year grant released", 1],
-    ["2nd year grant", "2nd year grant released", 2],
-    ["3rd year grant", "3rd year grant released", 3],
-  ];
-  for (let i = 1; i <= duration; i++) {
-    const lbl = yrLabels.find((l) => l[2] === i);
-    let sanctioned: number | null = null;
-    let released: boolean = false;
+  for (let i = 1; i <= Math.max(duration, 1); i++) {
+    const sancRaw = getYearAmount(row, i, "sanctioned");
+    const relRaw = getYearAmount(row, i, "released");
+    const sanctioned = parseMultiNumber(sancRaw);
+    let released = false;
     let amountReleased: number | null = null;
-    if (lbl) {
-      sanctioned = parseNumber(get(lbl[0]));
-      const relVal = get(lbl[1]);
-      const numRel = parseNumber(relVal);
-      if (numRel != null && numRel > 0) {
-        released = true;
-        amountReleased = numRel;
-      } else {
-        released = parseBool(relVal);
-      }
+    const numRel = parseMultiNumber(relRaw);
+    if (numRel != null && numRel > 0) {
+      released = true;
+      amountReleased = numRel;
+    } else if (relRaw != null && relRaw !== "") {
+      released = parseBool(relRaw);
     }
-    const row: any = {
+    const yrow: any = {
       year_number: i,
       sanctioned_amount: sanctioned,
       amount_released: amountReleased,
@@ -667,15 +753,17 @@ function mapRow(row: any, category: Category): any | null {
       extension_requested: false,
     };
     if (i === 1) {
-      row.hold_amount = parseNumber(get("10 % hold amount", "10% hold amount"));
-      row.hold_amount_released = parseBool(get("10 % hold amount released", "10% hold amount released"));
+      yrow.hold_amount = parseMultiNumber(get("10 % Hold Amount", "10% hold amount"));
+      yrow.hold_amount_released = parseBool(
+        get("10 % Hold Amount Released", "10% hold amount released"),
+      );
     }
-    yearlyRows.push(row);
+    yearlyRows.push(yrow);
   }
 
   const fyBudgets: any[] = [];
-  const req = parseNumber(get("2025-2026 required budget"));
-  const rel = parseNumber(get("2025-2026 released budget"));
+  const req = parseMultiNumber(get("2025-2026 Required Budget", "2025-2026 required budget"));
+  const rel = parseMultiNumber(get("2025-2026 Released Budget", "2025-2026 released budget"));
   if (req != null || rel != null) {
     fyBudgets.push({ financial_year: "2025-2026", required_budget: req, released_budget: rel });
   }
