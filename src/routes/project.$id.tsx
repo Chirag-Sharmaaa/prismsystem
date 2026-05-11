@@ -216,15 +216,19 @@ function ProjectPage() {
           <Detail k="e-Office Number" v={project.eoffice_number} />
           <Detail k="IRIS ID/EPMS ID" v={project.iris_id} />
           <Detail k="PI Name" v={project.pi_name} />
+          {project.co_pi && <Detail k="Co-PI" v={project.co_pi} />}
           <Detail k="Contact Number" v={project.contact_number} />
           <Detail k="Email ID" v={project.email_id ? <a href={`mailto:${project.email_id}`} className="text-primary hover:underline">{project.email_id}</a> : null} />
           <Detail k="Institute" v={project.institute} />
+          {project.department && <Detail k="Department" v={project.department} />}
           <Detail k="Institute Address" v={project.institute_address} />
           <Detail k="State" v={project.state} />
+          {project.broad_subject_area && <Detail k="Broad Subject Area" v={project.broad_subject_area} />}
           <Detail k="Date of Start" v={formatDate(project.start_date)} />
           <Detail k="Date of Completion" v={formatDate(project.date_of_completion)} />
           <Detail k="Duration" v={project.duration_years ? `${project.duration_years} years` : null} />
           <Detail k="Project State" v={project.project_state} />
+          {project.remarks && <Detail k="Remarks" v={project.remarks} />}
         </div>
       </Section>
 
@@ -233,6 +237,9 @@ function ProjectPage() {
         <div className="grid md:grid-cols-3 gap-4 text-sm">
           <Money k="Total Sanctioned" v={Number(project.total_sanctioned_amount) || 0} />
           <Money k="Total Released So Far" v={totalReleased} />
+          {project.total_amount_released != null && (
+            <Money k="Total Released (from records)" v={Number(project.total_amount_released) || 0} />
+          )}
           <Money k="10% Hold Amount" v={holdAmount} />
           <Detail k="10% Hold Released" v={holdReleased ? "Yes" : "No"} />
           <Money k="2025-2026 Required" v={required2526} />
