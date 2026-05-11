@@ -66,8 +66,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadProfile]);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message || null };
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error: error.message };
+    if (data.user) {
+      setIsGuest(false);
+      if (typeof window !== "undefined") localStorage.removeItem("prism-guest");
+      await loadProfile(data.user.id, data.user.email || "");
+    }
+    return { error: null };
   };
 
   const signOut = async () => {
