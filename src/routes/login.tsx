@@ -23,7 +23,14 @@ function LoginPage() {
       toast.error(error);
     } else {
       toast.success("Signed in");
-      navigate({ to: "/" });
+      // Wait for the session to be persisted before navigating so the
+      // AppLayout auth gate doesn't bounce us back to /login.
+      await supabase.auth.getSession();
+      if (typeof window !== "undefined") {
+        window.location.assign("/");
+      } else {
+        navigate({ to: "/" });
+      }
     }
   };
 
