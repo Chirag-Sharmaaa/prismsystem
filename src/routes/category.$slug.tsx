@@ -26,6 +26,7 @@ import {
   parseNumber,
   parseBool,
   parseDurationYears,
+  parseMultiNumber,
 } from "@/lib/format";
 import { logHistory } from "@/lib/history";
 
