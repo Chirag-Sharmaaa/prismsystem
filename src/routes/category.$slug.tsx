@@ -380,6 +380,8 @@ function ImportModal({
 }) {
   const [tab, setTab] = useState<"template" | "upload">("upload");
   const [rows, setRows] = useState<any[]>([]);
+  const [rawRows, setRawRows] = useState<any[]>([]);
+  const [rawHeaders, setRawHeaders] = useState<string[]>([]);
   const [sheetCount, setSheetCount] = useState(0);
   const [existingEFiles, setExistingEFiles] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
@@ -418,14 +420,38 @@ function ImportModal({
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array", cellDates: false });
       const allJson: any[] = [];
+      const allRaw: any[] = [];
+      let headers: string[] = [];
       for (const sheetName of wb.SheetNames) {
         const sheet = wb.Sheets[sheetName];
         const json: any[] = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+        // Also get raw array form to detect all headers including messy ones
+        const jsonArr: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as any[][];
+        if (jsonArr.length > 0 && headers.length === 0) {
+          headers = (jsonArr[0] as any[]).map((h: any) => String(h ?? "").trim());
+        }
         allJson.push(...json);
+        allRaw.push(...json);
+      }
+      // Fix: if no "PI Name" or "PI name" header exists but column index 6 has data, add it as PI Name
+      const hasPI = allJson.length > 0 && allJson[0] != null &&
+        Object.keys(allJson[0]).some(k => /pi\s*name/i.test(k));
+      if (!hasPI && headers.length >= 7) {
+        // Column 6 (index 6) is likely PI Name — remap it
+        const badHeader = headers[6];
+        if (badHeader) {
+          allJson.forEach(row => {
+            if (row[badHeader] !== undefined && !row["PI Name"]) {
+              row["PI Name"] = row[badHeader];
+            }
+          });
+        }
       }
       const mapped = allJson.map((row) => mapRow(row, category)).filter(Boolean) as any[];
       setSheetCount(wb.SheetNames.length);
       setRows(mapped);
+      setRawRows(allRaw.slice(0, 5));
+      setRawHeaders(headers);
       if (mapped.length === 0) toast.error("No valid project rows detected in file.");
     } catch (e: any) {
       toast.error("Failed to read file: " + (e?.message || "unknown error"));
@@ -539,47 +565,45 @@ function ImportModal({
                     {rows.length} projects found across {sheetCount} sheet{sheetCount !== 1 ? "s" : ""} ·{" "}
                     <span className="text-green-700 dark:text-green-400">{validCount} valid</span>
                   </div>
-                  <div className="text-xs text-muted-foreground mb-2">Preview (first 5 rows)</div>
-                  <div className="border rounded overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-muted">
+                  <div className="text-xs text-muted-foreground mb-1">Preview — first 5 rows, all columns (scroll right to see all)</div>
+                  <div className="text-xs text-muted-foreground mb-2 italic">Red rows will be skipped. Yellow rows have warnings but will still be imported.</div>
+                  <div className="border rounded overflow-x-auto max-h-64">
+                    <table className="text-xs whitespace-nowrap">
+                      <thead className="bg-muted sticky top-0">
                         <tr>
-                          <th className="p-1.5 text-left">S.No / File No.</th>
-                          <th className="p-1.5 text-left">PI Name</th>
-                          <th className="p-1.5 text-left">Project Title</th>
-                          <th className="p-1.5 text-left">Start Date</th>
-                          <th className="p-1.5 text-left">Duration</th>
-                          <th className="p-1.5 text-left">Status</th>
+                          <th className="p-1.5 text-left border-r bg-muted font-semibold sticky left-0 z-10">Import Status</th>
+                          {rawHeaders.map((h, i) => (
+                            <th key={i} className="p-1.5 text-left border-r max-w-32 truncate" title={h}>{h || `Col ${i+1}`}</th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {validatedRows.slice(0, 5).map((r, i) => (
-                          <tr
-                            key={i}
-                            className={`border-t ${
-                              r._invalid
-                                ? "bg-red-50 dark:bg-red-950/30"
-                                : r._warnings.length
-                                ? "bg-yellow-50 dark:bg-yellow-950/30"
-                                : ""
-                            }`}
-                          >
-                            <td className="p-1.5">{r.serial_number || r.file_number || r.e_file_number || "—"}</td>
-                            <td className="p-1.5">{r.pi_name || "—"}</td>
-                            <td className="p-1.5 max-w-xs truncate">{r.title || "—"}</td>
-                            <td className="p-1.5">{r.start_date || "—"}</td>
-                            <td className="p-1.5">{r.duration_years ? `${r.duration_years} yr` : "—"}</td>
-                            <td className="p-1.5">
-                              {r._invalid ? (
-                                <span className="text-red-700 dark:text-red-400">{r._issues.join(", ")}</span>
-                              ) : r._warnings.length ? (
-                                <span className="text-yellow-700 dark:text-yellow-400">{r._warnings.join(", ")}</span>
-                              ) : (
-                                <span className="text-green-700 dark:text-green-400">OK</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
+                        {rawRows.map((raw, i) => {
+                          const validated = validatedRows[i];
+                          const rowClass = validated?._invalid
+                            ? "bg-red-50 dark:bg-red-950/30"
+                            : validated?._warnings?.length
+                            ? "bg-yellow-50 dark:bg-yellow-950/30"
+                            : "";
+                          return (
+                            <tr key={i} className={`border-t ${rowClass}`}>
+                              <td className="p-1.5 border-r sticky left-0 bg-inherit z-10 min-w-24">
+                                {validated?._invalid ? (
+                                  <span className="text-red-700 dark:text-red-400 font-medium">{validated._issues.join(", ")}</span>
+                                ) : validated?._warnings?.length ? (
+                                  <span className="text-yellow-700 dark:text-yellow-400">{validated._warnings.join(", ")}</span>
+                                ) : (
+                                  <span className="text-green-700 dark:text-green-400 font-medium">✓ Valid</span>
+                                )}
+                              </td>
+                              {rawHeaders.map((h, j) => (
+                                <td key={j} className="p-1.5 border-r max-w-48 truncate" title={String(raw[h] ?? "")}>
+                                  {String(raw[h] ?? "") || "—"}
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
